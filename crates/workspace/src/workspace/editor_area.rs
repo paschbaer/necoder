@@ -13,8 +13,8 @@ mod preview_tabs;
 mod tabs;
 
 /// エージェント別の新規スレッドの行き先（B28）。表示名はカタログ（`acp_client::AGENTS`）と同じで、
-/// 並びは workspace の `NewThreadClaudeCode` … `NewThreadGrok` とパレットの `cmd.new_thread_*` と同じ。
-pub(crate) const AGENT_THREAD_LABELS: [&str; 7] = [
+/// 並びは workspace の `NewThreadClaudeCode` … `NewThreadForge` とパレットの `cmd.new_thread_*` と同じ。
+pub(crate) const AGENT_THREAD_LABELS: [&str; 8] = [
     "Claude Code",
     "Codex",
     "GitHub Copilot",
@@ -22,12 +22,13 @@ pub(crate) const AGENT_THREAD_LABELS: [&str; 7] = [
     "OpenCode",
     "Kimi CLI",
     "Grok Build",
+    "Forge",
 ];
 
 /// パレットのエージェント別の新規スレッド（`workspace::NewThreadCodex` など）が指すエージェント。
 /// 並びは [`AGENT_THREAD_LABELS`] と同じ。それ以外の action は `None`。
 pub(crate) fn agent_for_thread_action(action_name: &str) -> Option<&'static str> {
-    const ACTIONS: [&str; 7] = [
+    const ACTIONS: [&str; 8] = [
         "workspace::NewThreadClaudeCode",
         "workspace::NewThreadCodex",
         "workspace::NewThreadCopilot",
@@ -35,6 +36,7 @@ pub(crate) fn agent_for_thread_action(action_name: &str) -> Option<&'static str>
         "workspace::NewThreadOpenCode",
         "workspace::NewThreadKimi",
         "workspace::NewThreadGrok",
+        "workspace::NewThreadForge",
     ];
     ACTIONS
         .iter()

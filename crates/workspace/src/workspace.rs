@@ -299,6 +299,7 @@ actions!(
         NewThreadOpenCode,
         NewThreadKimi,
         NewThreadGrok,
+        NewThreadForge,
         // エディタタブの切替（⌘{ / ⌘} = ⌘⇧[ / ⌘⇧]）。M10 複数タブ。
         SelectNextTab,
         SelectPrevTab,
@@ -2678,6 +2679,9 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &NewThreadGrok, _, cx| {
                 this.new_agent_thread_with(editor_area::AGENT_THREAD_LABELS[6], cx)
+            }))
+            .on_action(cx.listener(|this, _: &NewThreadForge, _, cx| {
+                this.new_agent_thread_with(editor_area::AGENT_THREAD_LABELS[7], cx)
             }))
             .on_action(cx.listener(Self::select_next_thread))
             .on_action(cx.listener(Self::select_prev_thread))

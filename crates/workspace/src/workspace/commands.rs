@@ -263,6 +263,10 @@ impl CommandRegistry {
                 action_name: "workspace::NewThreadGrok",
             },
             CommandEntry {
+                label_key: "cmd.new_thread_forge",
+                action_name: "workspace::NewThreadForge",
+            },
+            CommandEntry {
                 label_key: "cmd.next_tab",
                 action_name: "workspace::SelectNextTab",
             },

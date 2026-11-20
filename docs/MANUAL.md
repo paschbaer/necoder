@@ -50,7 +50,7 @@ necoder（ねこーだー）の使い方をまとめた利用者向けの手引�
 ### AI 機能を使う準備
 
 AI 機能は、手元に入れたエージェントの CLI を ACP で動かす。対応は Claude Code・Codex・GitHub Copilot・
-Qwen Code・OpenCode・Kimi CLI・Grok Build で、ほかの ACP エージェントも設定から足せる。**どれか 1 つ**を
+Qwen Code・OpenCode・Kimi CLI・Grok Build・Forge で、ほかの ACP エージェントも設定から足せる。**どれか 1 つ**を
 インストールしてログインしておけば、**API キーは不要**（既存の契約をそのまま使う）。どれも必須ではない。
 
 - 初回起動時は「ようこそ」の案内が 3 つの手順で進む: ① 使う AI エージェントをオンにする（準備がまだなら、
@@ -493,7 +493,7 @@ settings.json では `enabled_agents`（例 `["claude", "codex"]`）。以前の
 
 ### 自分のエージェントを足す（settings.json）
 
-組み込みの 7 件（Claude Code・Codex・GitHub Copilot・Qwen Code・OpenCode・Kimi CLI・Grok Build）の外の
+組み込みの 8 件（Claude Code・Codex・GitHub Copilot・Qwen Code・OpenCode・Kimi CLI・Grok Build・Forge）の外の
 ACP エージェントも、settings.json の `agent_servers` に新しい id で書けば一覧に並ぶ。
 
 ```json
@@ -565,7 +565,14 @@ Claude Code などのエージェントを、自分のログイン（サブス�
 
 ### Pi と DeepSeek Harness を使う
 
-どちらも組み込みの 7 件には入っていないので、上の 2 つのやり方で足す。足したら **設定（⌘,）→ AI エージェント** で「既定」にすると、新しいスレッドはそれで始まる。
+どちらも組み込みの 8 件には入っていないので、上の 2 つのやり方で足す。足したら **設定（⌘,）→ AI エージェント** で「既定」にすると、新しいスレッドはそれで始まる。
+
+**Forge**（Rust 製のエージェント実行系）は組み込みの一覧に並ぶ。`forge` を PATH に置けば **設定（⌘,）→ AI エージェント** に出る。
+導入手順は 2 つ: Forge のチェックアウトで `cargo install --path rust/crates/forge-cli`、鍵は `forge setup`（設定が指すファイルへ書く）。
+宛先とモデルは Forge 側の設定（`<プロジェクト>/.forge/config.json`・無ければ `~/.forge/config.json`）で決まるので、necoder の「接続」は渡さない。
+**Forge は設定に並べたプロバイダの鍵を起動時に全部確かめる**（1 つでも解決できないと起動しない・2026-11-20 に実機で確認）。
+necoder からは、環境変数のままなら起動してもらう側の環境か settings.json の `agent_servers.forge.env` で渡し、
+ファイルに置くなら設定を `api_key_file` にする。
 
 **Pi**（ChatGPT・GitHub Copilot などのサブスクや、多くの API キーで使えるエージェント）
 

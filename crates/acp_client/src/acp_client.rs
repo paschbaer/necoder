@@ -1256,6 +1256,25 @@ pub const AGENTS: &[AgentKind] = &[
         brand_color: 0x4b_55_63,
         monogram: "G",
     },
+    // Forge（Rust 製のエージェント実行系）: ACP は `forge acp`。npm 外＝PATH の単体バイナリ
+    // （forge の checkout で `cargo install --path rust/crates/forge-cli` を回して入れる）。
+    // 宛先と鍵は CLI 側の設定が持つ（`<project>/.forge/config.json` → `~/.forge/config.json`・鍵は
+    // `forge setup`）。したがって接続（`providers/set`）の経路には乗らない（`connections::Harness`）。
+    // 権限モードは ACP で広告されるので、他のエージェントと同じくピルで切り替わる。
+    AgentKind {
+        id: "forge",
+        label: "Forge",
+        cli_bin: "forge",
+        bin: "forge",
+        registry_id: None,
+        package: None,
+        extra_args: &["acp"],
+        install_cmd: "cargo install --path rust/crates/forge-cli",
+        login_cmd: "forge setup",
+        icon: None,
+        brand_color: 0x6b_21_a8,
+        monogram: "F",
+    },
 ];
 
 /// necoder の置き場（`external_agents/npm`）から、今の解決が使わない ACP アダプタの版を消す
@@ -1289,6 +1308,7 @@ pub const AGENT_LABELS: &[&str] = &[
     "OpenCode",
     "Kimi CLI",
     "Grok Build",
+    "Forge",
 ];
 
 /// 設定画面が表示する Agent の利用状態。資格情報そのものは読み出さず、CLI の status、
@@ -1475,6 +1495,10 @@ impl AgentKind {
             "claude" => Some("claude auth login"),
             "codex" => Some("codex login"),
             "opencode" => Some("opencode auth login"),
+            // `forge setup`（stdin で鍵を受け取り、設定が指す資格情報のファイルへ書く・2026-11-20 に
+            // `forge setup --help` で確認）。cwd はプロジェクトルートなので、そのプロジェクトの
+            // `.forge/config.json` が指す先に入る。
+            "forge" => Some("forge setup"),
             _ => None,
         }
     }
@@ -1692,6 +1716,15 @@ impl AgentKind {
                 ready_env: &[],
                 env: &["XAI_API_KEY"],
                 files: &[".grok/config.toml", ".grok/credentials.json"],
+            },
+            // Forge は環境変数を勝手に読まない（設定が `api_key_env` で名前を指した時だけ効く・
+            // ambient-secret を数えない）。ここに見るのは CLI 側の設定の在処だけ: 鍵の在りか
+            // （`forge setup` が書くファイル）も宛先も `<project>/.forge/config.json` →
+            // `~/.forge/config.json` の順で決まるので、その 2 つ目の在否をログインの跡とする。
+            "forge" => LoginTraces {
+                ready_env: &[],
+                env: &[],
+                files: &[".forge/config.json"],
             },
             _ => LoginTraces {
                 ready_env: &[],
@@ -4818,6 +4851,56 @@ for line in sys.stdin:
 
     fn claude() -> &'static AgentKind {
         AGENTS.iter().find(|a| a.id == "claude").expect("claude")
+    }
+
+    /// Forge は npm のパッケージを持たない PATH の単体バイナリで、`acp` サブコマンドで ACP を話す
+    /// （`forge acp`・forge の `docs/acp-launch-examples.md`）。宛先と鍵は CLI 側の設定が持つので、
+    /// 接続（`providers/set`）の経路にも乗らない。2026-11-20 に実物の `forge acp` で確かめた形を固定する。
+    #[test]
+    fn forge_is_a_local_binary_launched_with_the_acp_subcommand() {
+        let forge = AgentKind::by_label("Forge").expect("Forge が組み込みカタログに無い");
+        assert_eq!(forge.id, "forge");
+        assert_eq!(forge.bin, "forge");
+        assert_eq!(forge.cli_bin, "forge");
+        // npm 配布もレジストリの項目も無い（npx 経路に落ちない）。
+        assert!(forge.package.is_none(), "npm パッケージを持ってはいけない");
+        assert!(forge.registry_id.is_none(), "レジストリ項目を持ってはいけない");
+        assert_eq!(forge.extra_args, &["acp"]);
+        // 接続（providers/set）の経路に乗らない＝`Harness` を持たない。
+        assert_eq!(
+            crate::connections::Harness::of(&crate::Agent::Builtin(forge)),
+            None
+        );
+        // ラベルの一覧はカタログと 1:1（末尾に足す）。
+        assert_eq!(AGENT_LABELS.len(), AGENTS.len());
+        assert_eq!(AGENT_LABELS.last().copied(), Some(forge.label));
+    }
+
+    /// 設定で `forge` の場所を差し替えても `acp` は落ちない（ユーザーの args の後ろに付く）。
+    #[test]
+    fn a_forge_override_still_gets_the_acp_subcommand() {
+        let forge = AgentKind::by_label("Forge").expect("Forge");
+        let settings = AgentOverride {
+            command: Option::Some("definitely-not-a-real-forge-xyz".to_string()),
+            args: vec!["--workspace".to_string(), ".".to_string()],
+            env: BTreeMap::new(),
+        };
+        let resolved = forge
+            .resolve_command(".", Some(&settings), None)
+            .expect("設定があれば必ず解決する");
+        assert_eq!(resolved.args, vec!["--workspace", ".", "acp"]);
+    }
+
+    /// Forge の「ログインの跡」は CLI 側の設定ファイルだけ（`.forge/config.json`）。環境変数は
+    /// 設定が名前を指した時だけ効くので、ambient を跡に数えない。
+    #[test]
+    fn forge_login_trace_is_the_cli_config_file() {
+        let traces = AgentKind::by_label("Forge")
+            .expect("Forge")
+            .login_traces();
+        assert!(traces.ready_env.is_empty());
+        assert!(traces.env.is_empty());
+        assert_eq!(traces.files, &[".forge/config.json"]);
     }
 
     #[test]

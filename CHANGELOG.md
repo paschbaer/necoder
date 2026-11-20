@@ -5,6 +5,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/) · [Semantic Versioning]
 
 ## [Unreleased]
 
+Forge is now one of the built-in agents: necoder starts `forge acp` as an ACP server, so a Forge thread behaves like any other thread.
+
+### Added
+
+- **Forge as a built-in agent**: Forge now appears in the agent list (Settings › AI agents, the composer's agent pill, and the command palette's "AI: New thread (Forge)"). necoder launches the `forge` binary found on your PATH with the `acp` subcommand in the project root, and uses `forge setup` as its re-login command. Forge keeps its own model settings — `<project>/.forge/config.json`, falling back to `~/.forge/config.json` — and its own key, so necoder does not pass a connection into it. Install it from a Forge checkout with `cargo install --path rust/crates/forge-cli`.
+
+### 日本語
+
+Forge が組み込みのエージェントに加わりました。necoder は `forge acp` を ACP サーバとして起こすので、Forge のスレッドもほかのスレッドと同じに扱えます。
+
+### 追加
+
+- **Forge を組み込みのエージェントに**: エージェントの一覧（設定 › AI エージェント・composer のエージェントのピル・パレットの「AI: 新しいスレッド（Forge）」）に Forge が並びます。necoder は PATH 上の `forge` をプロジェクトルートで `acp` サブコマンド付きで起こし、再ログインの案内は `forge setup` です。Forge は自分のモデルの設定（`<project>/.forge/config.json`・無ければ `~/.forge/config.json`）と自分の鍵を持つので、necoder は接続を渡しません。導入は Forge の checkout で `cargo install --path rust/crates/forge-cli` です。
+
 ## [0.1.40] - 2026-11-19
 
 Claude threads no longer stop when `CLAUDE_CODE_EXECUTABLE` points to a file that is gone, and the built-in Claude adapter follows the public registry again, so it brings a current Claude Code with it. You can also set the font size of your messages and of AI responses.

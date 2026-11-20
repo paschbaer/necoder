@@ -4536,3 +4536,38 @@
 - 残: GUI はこのマシンでビルドできない（`metal` が無い）ので、アプリ本体での確認はしていない。0.108.1 で本物の「接続」の宛先（z.ai など）に繋いだ時のモデルの選択肢は未確認。`probe_providers` の宛先。本人の環境の上書き（launchd の plist）を外すかどうか。
 - 追記（同日）: 本人の指示で、11-13 から未コミットだった 2 件（会話の文字サイズの設定・Codex をスレッドのモデルで起こす）も同じ版（v0.1.40）に入れる。この 2 件の日誌は無い（中身は CHANGELOG・UI-SPEC・ARCHITECTURE）。試験 `a_dead_claude_executable_override_does_not_stop_the_session` の偽エージェントは「空か未設定」を見る（Windows は空の値の変数を子へ見せないことがある）。
 
+## 2026-11-20 — Forge を組み込みの ACP エージェントに足す（`forge acp`）
+
+- 発端: 本人「`forge` を ACP サーバとして necoder に組み込みたい」。Forge は Rust 製のエージェント実行系で、
+  本番の入口は `forge acp`（stdio・newline 区切りの JSON-RPC）。
+- 調べ（向こうの正は `D:\repos\forge\docs\acp-launch-examples.md`）: `initialize` は `loadSession = true` を返し、
+  `session/new {cwd}` / `session/load` / `session/prompt` → `session/update`（`tool_call` → `tool_call_update`）、
+  許可は `session/request_permission` に `approve_once | approve_session | reject` を返す（答えない間は turn が待つ）。
+  宛先と鍵は CLI 側の設定（`<project>/.forge/config.json` → `~/.forge/config.json`・`model.providers[].api_key_env` /
+  `api_key_file`）で、鍵は `forge setup` が設定の指すファイルへ書く。npm の配布も公開レジストリの項目も無い
+  ＝PATH の単体バイナリ（forge の checkout で `cargo install --path rust/crates/forge-cli`）。
+- 直し: `acp_client` の組み込みカタログに `forge` を追加（`bin: "forge"`・`extra_args: ["acp"]`・`package: None`・
+  `registry_id: None`）。`AGENT_LABELS` の末尾にも足した（1:1 は試験で固定）。ログインの跡は `.forge/config.json` だけ
+  （Forge は設定が名前を指した時だけ env を読むので、ambient の env を跡に数えない）。`login_command` は `forge setup`
+  （`--help` を実機で確認）。パレットの「AI: 新しいスレッド（Forge）」も足した（`NewThreadForge`・
+  `AGENT_THREAD_LABELS` の 8 件目・`cmd.new_thread_forge` の ja/en）。
+- 罠 1: **Forge は設定に並べたプロバイダの鍵を起動時に全部確かめる**（1 つでも解決できないと `forge acp` は
+  `initialize` の前に落ちる）。このマシンの `~/.forge/config.json` は `zai` / `deepseek` の 2 つを並べていて、
+  Forge 自身のサンドボックスが env を絞る（`runtime.shell.environment` の許可リスト）ので、下の殻からは鍵が見えず
+  最初のプローブは**何も出ずに時間切れ**になった（子の stderr は `run_session_on` からは見えない＝「無言」に見える）。
+  プローブはダミーの鍵を 2 つ入れて通した。necoder からは起動元の env か settings.json の `agent_servers.forge.env`、
+  ファイルなら `api_key_file` で渡す（MANUAL に書いた）。
+- 罠 2: Forge は `providers/set` を持たない（接続を渡す経路に乗らない）。`connections::Harness::of` が `None` を返すことを
+  試験で固定した。権限モードは ACP の config option で広告されるので、composer のピルは既存のままで効く。
+- 検証: `cargo test -p acp_client` — **165 passed / 8 ignored**（新規 3: `forge_is_a_local_binary_launched_with_the_acp_subcommand`・
+  `a_forge_override_still_gets_the_acp_subcommand`・`forge_login_trace_is_the_cli_config_file`）。
+  **実物**: PATH に `D:\Tools\Forge` を入れ、`cargo run -p acp_client --example probe_advertisement -- Forge` で
+  necoder の本当のセッション経路（`run_session_on`）から `SessionStarted`（id `6dc4423a-…`）→ `Modes`
+  （`default` / `accept_edits` / `bypass_permissions`）→ `Config[Model]`（`glm-5.3-flash` ほか 3 つ）・
+  `Config[Other] Reasoning effort`・`Config[Mode]` まで届いた（prompt は 1 通も送っていない）。
+- 残: workspace / settings 側（パレット・設定画面）は**この環境ではコンパイルしていない**（gpui のビルドが要る。
+  構文だけ rustfmt で確認）。実機の necoder で「送信 → ツール → 承認 → 完了」の 1 往復は人の手番。
+  `forge` が PATH に無い環境では一覧に出ない（`enabled_agents` の既定は空）ので、設定 › AI エージェントでオンにする。
+  実 SSH 先の `forge`（Linux）は未確認。
+
+

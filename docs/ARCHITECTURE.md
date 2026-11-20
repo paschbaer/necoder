@@ -520,7 +520,8 @@ project 層から**外してから**重ねる（`SettingsStore::load`。外し�
   - OpenCode: ひな形が OpenCode の組み込みのプロバイダ（models.dev の id）に当たる時だけ、そのプロバイダの環境変数で
     キーを渡し、`OPENCODE_CONFIG_CONTENT`（リポジトリの `opencode.json` より強い）の `enabled_providers` でその
     プロバイダだけにする。宛先は OpenCode の既定の口なので、ベース URL を書き換えた接続は渡さない
-  - それ以外（Codex・Copilot・Qwen Code・Kimi CLI・Grok Build・他の足したエージェント）は渡さない。Pi は別 Task
+  - それ以外（Codex・Copilot・Qwen Code・Kimi CLI・Grok Build・Forge・他の足したエージェント）は渡さない
+    （Forge は `providers/set` を持たず、宛先と鍵は `<project>/.forge/config.json` → `~/.forge/config.json` が決める）。Pi は別 Task
 - **env の積み順**: task.env → `agent_servers` の env → プリセット（Chat・席）→ **接続**（最後＝どれにも上書きさせない）。
   接続を渡すセッションでは、リポジトリの `.necoder/task.env` から宛先・プロキシ・証明書・差し込むコードを変える変数
   （`ANTHROPIC_*` / `OPENAI_*` / `OPENCODE_*` / `HTTPS_PROXY` / `NODE_OPTIONS` / `NODE_EXTRA_CA_CERTS` / `DYLD_*` …・

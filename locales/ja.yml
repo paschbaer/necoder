@@ -354,6 +354,7 @@ cmd:
   new_thread_opencode: "AI: 新しいスレッド（OpenCode）"
   new_thread_kimi: "AI: 新しいスレッド（Kimi CLI）"
   new_thread_grok: "AI: 新しいスレッド（Grok Build）"
+  new_thread_forge: "AI: 新しいスレッド（Forge）"
   new_thread_with: "AI: 新しいスレッド（%{agent}）"
   next_tab: "タブ: 次へ"
   prev_tab: "タブ: 前へ"
