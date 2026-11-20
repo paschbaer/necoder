@@ -104,6 +104,7 @@ dependencies = [
  "child_process",
  "futures",
  "host",
+ "i18n",
  "keyring",
  "paths",
  "security-framework 3.7.0",

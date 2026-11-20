@@ -532,17 +532,17 @@ pub struct AgentExited {
 
 impl std::fmt::Display for AgentExited {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match (self.code, self.signal) {
-            (Some(code), _) => write!(
-                formatter,
-                "エージェントが起動してすぐ終了した（終了コード {code}）"
-            ),
-            (None, Some(signal)) => write!(
-                formatter,
-                "エージェントが起動してすぐ終了した（シグナル {signal}）"
-            ),
-            (None, None) => write!(formatter, "エージェントが起動してすぐ終了した"),
-        }
+        // 文は UI と同じ言語で出す（理由の断片はカードと同じ `agent.exit_*` を使う）。
+        let reason = match (self.code, self.signal) {
+            (Some(code), _) => i18n::t!("agent.exit_code", "code" => code),
+            (None, Some(signal)) => i18n::t!("agent.exit_signal", "signal" => signal),
+            (None, None) => i18n::t!("agent.exit_unknown"),
+        };
+        write!(
+            formatter,
+            "{}",
+            i18n::t!("agent.err_exited_at_startup", "reason" => reason)
+        )
     }
 }
 
@@ -2425,9 +2425,10 @@ async fn with_timeout<T>(
         Either::Left((result, _timer)) => result,
         Either::Right(((), _future)) => Err(acp::Error::new(
             i32::from(acp::ErrorCode::InternalError),
-            format!(
-                "{label} が {} 秒応答しません（エージェントの無言ハング）",
-                timeout.as_secs()
+            i18n::t!(
+                "agent.err_no_response",
+                "stage" => label,
+                "seconds" => timeout.as_secs()
             ),
         )),
     }
@@ -2455,7 +2456,7 @@ pub async fn probe_providers(
         .envs(command.env.clone());
     let mut process = LocalHost::shared()
         .spawn_process(&spec)
-        .with_context(|| format!("ACP agent を起動できない: {}", command.path.display()))?;
+        .with_context(|| i18n::t!("agent.err_launch", "path" => command.path.display()))?;
     let transport = acp::ByteStreams::new(
         blocking::Unblock::new(process.take_stdin()?),
         blocking::Unblock::new(process.take_stdout()?),
@@ -2513,12 +2514,7 @@ pub async fn connect_and_initialize(command: &AgentCommand) -> Result<v1::Initia
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit()) // エージェントのログは我々の stderr へ（検証しやすく）
         .spawn()
-        .with_context(|| {
-            format!(
-                "claude-agent-acp を起動できない: {}",
-                command.path.display()
-            )
-        })?;
+        .with_context(|| i18n::t!("agent.err_launch", "path" => command.path.display()))?;
 
     let stdin = child.stdin.take().context("子プロセスの stdin が無い")?;
     let stdout = child.stdout.take().context("子プロセスの stdout が無い")?;
@@ -2554,12 +2550,7 @@ pub async fn prompt_once(command: &AgentCommand, prompt: &str) -> Result<String>
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
-        .with_context(|| {
-            format!(
-                "claude-agent-acp を起動できない: {}",
-                command.path.display()
-            )
-        })?;
+        .with_context(|| i18n::t!("agent.err_launch", "path" => command.path.display()))?;
 
     let stdin = child.stdin.take().context("子プロセスの stdin が無い")?;
     let stdout = child.stdout.take().context("子プロセスの stdout が無い")?;
@@ -2980,7 +2971,7 @@ async fn run_session_attempt(
     } = start;
     let mut process = host
         .spawn_process(&spec)
-        .with_context(|| format!("ACP agent を起動できない: {}", command.path.display()))?;
+        .with_context(|| i18n::t!("agent.err_launch", "path" => command.path.display()))?;
     let stdin = process.take_stdin()?;
     let stdout = process.take_stdout()?;
     let transport = acp::ByteStreams::new(
@@ -3756,7 +3747,7 @@ async fn run_session_attempt(
             return Err(anyhow::Error::new(exited));
         }
     }
-    let outcome = outcome.context("ACP セッションが異常終了");
+    let outcome = outcome.context(i18n::t!("agent.err_session_failed"));
 
     drop(process);
     outcome
@@ -4864,7 +4855,10 @@ for line in sys.stdin:
         assert_eq!(forge.cli_bin, "forge");
         // npm 配布もレジストリの項目も無い（npx 経路に落ちない）。
         assert!(forge.package.is_none(), "npm パッケージを持ってはいけない");
-        assert!(forge.registry_id.is_none(), "レジストリ項目を持ってはいけない");
+        assert!(
+            forge.registry_id.is_none(),
+            "レジストリ項目を持ってはいけない"
+        );
         assert_eq!(forge.extra_args, &["acp"]);
         // 接続（providers/set）の経路に乗らない＝`Harness` を持たない。
         assert_eq!(
@@ -4895,9 +4889,7 @@ for line in sys.stdin:
     /// 設定が名前を指した時だけ効くので、ambient を跡に数えない。
     #[test]
     fn forge_login_trace_is_the_cli_config_file() {
-        let traces = AgentKind::by_label("Forge")
-            .expect("Forge")
-            .login_traces();
+        let traces = AgentKind::by_label("Forge").expect("Forge").login_traces();
         assert!(traces.ready_env.is_empty());
         assert!(traces.env.is_empty());
         assert_eq!(traces.files, &[".forge/config.json"]);
@@ -8035,9 +8027,14 @@ for line in sys.stdin:
         ))
         .expect_err("無言ハングは timeout エラーになる");
         let message = error.to_string();
-        assert!(
-            message.contains("ACP initialize") && message.contains("応答しません"),
-            "timeout エラーに理由が載る（UI に出る文言）: {message}"
+        let expected = i18n::t!(
+            "agent.err_no_response",
+            "stage" => "ACP initialize",
+            "seconds" => 0
+        );
+        assert_eq!(
+            message, expected,
+            "timeout エラーは UI と同じ言語で理由を載せる: {message}"
         );
     }
 
@@ -8059,7 +8056,7 @@ for line in sys.stdin:
         let elapsed = started.elapsed();
         let error = result.expect_err("無言ハングは timeout エラーになる（無限待ちにならない）");
         assert!(
-            format!("{error:#}").contains("応答しません"),
+            format!("{error:#}").contains("ACP initialize"),
             "理由が UI に出る: {error:#}"
         );
         assert!(

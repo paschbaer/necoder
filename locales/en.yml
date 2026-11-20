@@ -104,6 +104,11 @@ agent:
   session_lost_banner: Session lost (e.g. SSH dropped). It restarts with your next message
   session_lost_banner_local: The agent exited. It restarts with your next message
   err_session_lost_process: The agent's process exited
+  # Failure text produced by acp_client (shown in the UI language)
+  err_session_failed: "The ACP session failed"
+  err_no_response: "No response from %{stage} within %{seconds}s (the agent is hanging silently)"
+  err_launch: "Could not launch the ACP agent: %{path}"
+  err_exited_at_startup: "The agent exited right after starting (%{reason})"
   err_agent_exited: "The agent exited right after starting (%{status}). What it wrote to stderr is shown on screen only and isn't saved"
   exit_code: "Exit code %{code}"
   exit_signal: "Ended by signal %{signal}"

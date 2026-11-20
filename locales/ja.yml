@@ -105,6 +105,11 @@ agent:
   session_lost_banner: "セッションが切れました（SSH 切断など）。次の送信時に再起動します"
   session_lost_banner_local: "エージェントが終了しました。次の送信時に再起動します"
   err_session_lost_process: エージェントのプロセスが終了しました
+  # acp_client が作る失敗の文（表示は UI と同じ言語）
+  err_session_failed: "ACP セッションが異常終了"
+  err_no_response: "%{stage} が %{seconds} 秒応答しません（エージェントの無言ハング）"
+  err_launch: "ACP agent を起動できない: %{path}"
+  err_exited_at_startup: "エージェントが起動してすぐ終了した（%{reason}）"
   err_agent_exited: "エージェントが起動直後に終了しました（%{status}）。エージェントが stderr に出力した理由は画面にのみ表示し、保存しません"
   exit_code: "終了コード %{code}"
   exit_signal: "シグナル %{signal} で終了"
