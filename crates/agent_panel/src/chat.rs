@@ -996,10 +996,12 @@ fn new_chat_thread(color_index: usize, cx: &App) -> Thread {
     let mut thread = Thread::empty(i18n::t!("chat.new_chat"), color_index);
     apply_thread_defaults(&mut thread, cx);
     let chosen = settings::get(cx).chat.agent;
-    thread.agent = if chosen == "Codex" {
-        "Codex"
+    // `chat.agent` は Chat の入力欄で選んだ表示名（`select_option` が保存）。知らない名前が
+    // 入っていたら（古い設定・手書き）既定の Claude Code へ倒す。
+    thread.agent = if chat_allows_agent(&chosen) {
+        chosen
     } else {
-        "Claude Code"
+        "Claude Code".to_string()
     }
     .into();
     apply_agent_sticky(&mut thread, cx);
@@ -1008,13 +1010,27 @@ fn new_chat_thread(color_index: usize, cx: &App) -> Thread {
     thread
 }
 
+/// Chat で選べるエージェント（表示名）。Chat はプリセットと権限の裁定を necoder が決める面なので、
+/// 実機で検証した物だけを出す（`docs/CHAT.md` §対応状況）。Forge は `forge acp` が session/new を
+/// 素通りさせるので Claude と同じ汎用の道（`chat_session_preferences` の Codex 以外）で動く。
+pub(super) const CHAT_AGENT_LABELS: &[&str] = &["Claude Code", "Codex", "Forge"];
+
+/// 表示名が Chat で選べるか（ピルの候補と `select_option` の壁の両方で使う）。
+pub(super) fn chat_allows_agent(label: &str) -> bool {
+    CHAT_AGENT_LABELS.contains(&label)
+}
+
 /// チャットを始める権限モード（Chat の入力欄で選んだ物。エディタの記憶は引き継がない）。
 pub(super) fn chat_start_mode(agent: &str, cx: &App) -> SharedString {
     let chat = settings::get(cx).chat;
-    let id = if agent == "Codex" { "codex" } else { "claude" };
+    // 記憶の鍵は agent id（`select_option` が書く時と同じ）。表示名から引けない物は従来どおり
+    // Claude の鍵へ倒す（旧設定の移行元）。
+    let id = settings::agent_by_label(cx, agent)
+        .map(|agent| agent.id().to_string())
+        .unwrap_or_else(|| "claude".to_string());
     let remembered = chat
         .permission_modes
-        .get(id)
+        .get(&id)
         .cloned()
         .or_else(|| (id == "claude").then_some(chat.permission_mode))
         .filter(|mode| !mode.is_empty());
@@ -1281,6 +1297,40 @@ mod tests {
             panel.open_chat(&id, cx);
             assert_eq!(panel.threads[panel.active].agent.as_ref(), "Codex");
             assert!(settings::get(cx).agent_config_defaults.is_empty());
+        });
+        drop(fixture);
+    }
+
+    /// Forge も Chat の AI に選べる（2026-11-22）。ピルの壁（`select_option`）と候補の両方を通り、
+    /// モードの記憶は agent id（forge）の鍵で Claude と混ざらない。
+    #[gpui::test]
+    fn forge_chat_is_selectable_and_keeps_its_own_modes(cx: &mut gpui::TestAppContext) {
+        let fixture = Fixture::new(cx, "forge_chat");
+        let (panel, cx) = cx.add_window_view(|_window, cx| AgentPanel::new_chat(Theme::dark(), cx));
+        panel.update(cx, |panel, cx| {
+            panel.select_option(Selector::Agent, "Forge".into(), cx);
+            assert_eq!(panel.threads[panel.active].agent.as_ref(), "Forge");
+            // 記憶が無い Forge は Claude と同じ既定（"default"）で始まる。
+            assert_eq!(panel.threads[panel.active].permission_mode.as_ref(), "default");
+            // 選んだモードは forge の鍵で覚わる。新しい Chat も Forge を引き継ぐ。
+            panel.select_option(Selector::Mode, "accept_edits".into(), cx);
+            let modes = settings::get(cx).chat.permission_modes;
+            assert!(modes.contains_key("forge"), "鍵は agent id");
+            assert!(!modes.contains_key("claude"), "Claude の鍵は作らない");
+            let next = new_chat_thread(0, cx);
+            assert_eq!(next.agent.as_ref(), "Forge");
+            assert_eq!(next.permission_mode.as_ref(), "accept_edits");
+            // Claude に替えると forge の記憶は持ち込まれない。
+            panel.select_option(Selector::Agent, "Claude Code".into(), cx);
+            assert_eq!(panel.threads[panel.active].permission_mode.as_ref(), "default");
+            // いまの値（Forge）は選べる一覧から消さない（選び直せる）。
+            panel.select_option(Selector::Agent, "Forge".into(), cx);
+            let values: Vec<_> = panel
+                .selector_choices(Selector::Agent, cx)
+                .into_iter()
+                .map(|choice| choice.value.to_string())
+                .collect();
+            assert!(values.contains(&"Forge".to_string()));
         });
         drop(fixture);
     }

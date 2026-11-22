@@ -814,7 +814,7 @@ impl SettingsView {
             agent: crate::resolve_default_agent(
                 settings,
                 &catalog,
-                &acp_client::authenticated_agent_labels(),
+                &acp_client::authenticated_agent_labels(&overrides),
             ),
             automatic: crate::default_agent_is_automatic(settings, &catalog),
         };

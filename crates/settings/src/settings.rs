@@ -17,6 +17,7 @@ use gpui::{
     FontWeight, Global, Hsla, IntoElement, MouseButton, Render, SharedString, Stateful, Window,
 };
 use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use theme_core::Theme;
@@ -334,10 +335,11 @@ fn label_enabled_in(settings: &Settings, catalog: &acp_client::AgentCatalog, lab
 /// 決め方は [`resolve_default_agent`]。**どれかを必須にはしない** — 未導入の Claude Code が既定として
 /// 外せず残る、という作りを 2026-10-09 にやめた（Codex だけ使いたい人が「Claude 必須」と読んだ）。
 pub fn default_agent(cx: &App) -> Option<acp_client::Agent> {
+    let settings = get(cx);
     resolve_default_agent(
-        &get(cx),
+        &settings,
         &agent_catalog(cx),
-        &acp_client::authenticated_agent_labels(),
+        &acp_client::authenticated_agent_labels(&agents_page::builtin_overrides(&settings)),
     )
 }
 
@@ -379,13 +381,20 @@ pub fn default_agent_is_automatic(settings: &Settings, catalog: &acp_client::Age
 pub fn selectable_agent_labels(cx: &App) -> Vec<SharedString> {
     let settings = get(cx);
     let catalog = agent_catalog(cx);
-    acp_client::authenticated_agent_labels()
+    acp_client::authenticated_agent_labels(&agents_page::builtin_overrides(&settings))
         .into_iter()
         .map(str::to_string)
         .chain(catalog.customs().iter().map(|custom| custom.label.clone()))
         .filter(|label| label_enabled_in(&settings, &catalog, label))
         .map(SharedString::from)
         .collect()
+}
+
+/// 設定で起動を差し替えた組み込みエージェント（id → 上書き）。acp_client のログインの跡の判定
+/// （[`acp_client::authenticated_agent_labels`]）と readiness の事実に渡す — acp_client は
+/// 設定スキーマを知らないままにする（依存方向は増やさない）。
+pub fn builtin_agent_overrides(cx: &App) -> BTreeMap<String, acp_client::AgentOverride> {
+    agents_page::builtin_overrides(&get(cx))
 }
 
 /// `agent_id` を使う / 使わないを入れ替えた後の `enabled_agents`（並びは保つ）。
@@ -1249,7 +1258,8 @@ impl SettingsView {
                     host::refresh_search_path();
                     let cwd =
                         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                    let auth_states = acp_client::refresh_agent_auth_states(cwd, &disabled).await;
+                    let auth_states =
+                        acp_client::refresh_agent_auth_states(cwd, &disabled, &overrides).await;
                     let facts = acp_client::readiness::local_facts(
                         &agents,
                         &overrides,
@@ -1294,10 +1304,16 @@ impl SettingsView {
         // node も見る: ネイティブ版 claude が在って足りないのが Node.js だけの時、node を入れても
         // CLI / ログインは変わらないので、これが無いと反映されない（#69）。
         // uv も同じ（Kimi は uv で入れる・準備の手順の 1 つ目）。
+        // override は見張りの間は固定（Arc＝ループのたびに closure を複製して動かす）。
+        let agent_override = std::sync::Arc::new(
+            agents_page::builtin_overrides(&get(cx))
+                .get(agent.id)
+                .cloned(),
+        );
         let probe = move || {
             (
                 agent.cli_installed(),
-                agent.configured_auth_state(),
+                agent.configured_auth_state(agent_override.as_ref().as_ref()),
                 host::find_in_path("node").is_some(),
                 host::find_in_path("uv").is_some(),
             )
@@ -1308,6 +1324,7 @@ impl SettingsView {
             let mut changed = false;
             for _ in 0..600 {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
+                let probe = probe.clone();
                 let current = cx
                     .background_executor()
                     .spawn(async move {

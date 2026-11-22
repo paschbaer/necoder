@@ -4570,4 +4570,57 @@
   `forge` が PATH に無い環境では一覧に出ない（`enabled_agents` の既定は空）ので、設定 › AI エージェントでオンにする。
   実 SSH 先の `forge`（Linux）は未確認。
 
+## 2026-11-22 — Forge を Chat の AI 選択に加える
+
+- 発端: 本人「forge ist still not available in chat's agents dropdown」。Editor のスレッドでは Forge が
+  選べるのに、**Chat モードの AI のピルだけ Forge が出ない**。
+- 原因: Chat のピルには 2026-11-04（v0.1.37 の Codex Chat 対応）から
+  `matches!(value, "Claude Code" | "Codex")` の**許可リストが 2 か所**に直書きしてあった —
+  ① `selector_choices_for`（候補を絞る）と ② `select_option`（壁・Chat モードで選ぶと握り潰す）。
+  Forge 追加（11-20）の時は Editor 側しか見ていなかったので、ここが更新されず Chat からは出なかった。
+- 直し: 許可リストを `chat::CHAT_AGENT_LABELS`（`["Claude Code", "Codex", "Forge"]`）に一本化し、①②の両方から
+  `chat::chat_allows_agent` で見る。あわせて周囲の Claude/Codex 二值の分岐を agent id 基準へ直した:
+  - `chat_start_mode` — モードの記憶の鍵を `if agent == "Codex" { "codex" } else { "claude" }` から
+    `settings::agent_by_label` で引いた **agent id** に。書き込み側（`select_option` の `chat_mode_choice`）は
+    昔から agent id で書いていたので、読み側を揃えた形。既存の `claude` / `codex` の鍵の値はそのまま効く
+    （組み込みの id がたまたま一致・表示名から引けない物は従来どおり `claude` に倒す）。Forge は `forge` の鍵で
+    独立に覚わり、既定は `default`（Forge の広告するモード語彙に含まれる・11-20 のプローブ）。
+  - `new_chat_thread` — `chat.agent` を「Codex か否か」ではなく `chat_allows_agent` で素通しに
+    （知らない名前が入っていたら Claude Code に倒す）。
+- Chat での Forge の動き: `chat_session_preferences` は Codex 以外を全部汎用の道に流すので、Forge は Claude と同じ
+  `session_preset` に乗る。ただし Forge がプリセットの項目（システムプロンプトの差し替え・道具の絞り込み）を
+  扱うかは未確認 — 無視されても cwd がチャットのフォルダに来るだけなので壊れない、が前提。コネクタの `_meta` は
+  Claude 固有なので Forge には効かない。実装の正は `docs/CHAT.md` 末尾の「Forge の Chat 対応（2026-11-22）」。
+- 検証: `cargo check -p agent_panel` + `cargo test -p agent_panel` — **202 passed / 0 failed**
+  （新規: `forge_chat_is_selectable_and_keeps_its_own_modes`。Forge が Chat のピルの壁を通り、
+  モードの記憶が `forge` の鍵で Claude に染まらないこと・新規 Chat が `chat.agent = "Forge"` を復元すること）。
+  実機での「送信 → ツール → 承認 → 完了」の 1 往復は人の手番。
+
+### 追記（同日・再報告）— 本当の根はログインの跡の判定が PATH だけを見ていた
+
+- 経過: 上の直しを入れてリビルド・再起動しても、本人「`forge` はまだ出ない」。Chat の許可リストは直っていたので、
+  上流の**一覧そのもの**を疑った。診断のワンオフ（`authenticated_agent_labels` を実機で print）で
+  **`authenticated_agent_labels = []` — 空だった**。Forge だけでなく、このマシンの組み込みは全部
+  `SignedOut` 扱いで、ピルの一覧は設定で足した「GLM Agent」しか出ていなかった。
+  （Editor の Forge スレッドはパレットの「AI: 新しいスレッド（Forge）」が `selectable` を経由せず
+  スレッドに Forge を載せるので、見えていなかった。罠だった。）
+- 根因: `AgentKind::configured_auth_state` の**最初の門** `if !self.cli_installed() { return SignedOut }`。
+  `cli_installed` は PATH 探索だけ。Forge は npm 外の PATH の単体バイナリで、このマシンでは
+  `agent_servers.forge.command = D:\Tools\Forge\forge.exe` を設定に書いて使う（PATH は通していない）。
+  起動（`resolve_command_on`）と readiness の事実（`local_facts`）は override を知っているのに、
+  **ログインの跡の判定だけが override を知らない**ので、Forge は跡の `~/.forge/config.json` が在っても
+  門で `SignedOut` に落ちて一覧から消えていた。
+- 直し（acp_client は設定スキーマを知らないまま・`BTreeMap<String, AgentOverride>` を settings 層が写す）:
+  - `configured_auth_state(launch)` — 門を `cli_installed() || launch.command.is_some()` へ。env だけの
+    上書きは起動の解決を変えないので数えない。
+  - `detect_configured_agent_states` / `cached_agent_auth_states` / `authenticated_agent_labels` /
+    `refresh_agent_auth_states` に overrides を通す（refresh は PATH に無い物を初回判定のまま返すだけなので
+    ロジックの変更なし）。`OnceLock` の初回がそのまま残るので、呼び出し側は全部実の overrides を載せる
+    （`selectable_agent_labels` / `default_agent` / agents_page / agent_setup / captain の各所）。
+  - settings に `builtin_agent_overrides(cx)` を出した（workspace・captain の任命の面も同じ一覧を使う）。
+- 検証: 診断で `authenticated (forge override) = ["Forge"]`（直前は `[]`）。`cargo test -p acp_client`
+  （166・新規 `an_override_launch_survives_the_path_gate`）+ settings 42 + agent_panel 202。
+  OnceLock の初回が empty overrides だと毒される性質は変わっていない（refresh は設定ページを開くまで来ない）
+  — 実機での確認はリビルド後の再起動で、Chat と Editor の両ピルに Forge が出ることを見る。
+
 

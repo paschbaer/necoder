@@ -113,8 +113,11 @@ impl SettingsView {
                 self.agent_jobs.remove(kind.id);
                 self.refresh_availability(cx);
                 // ボタン 1 つで最後まで: 入ったらそのままログインへ（跡も無い時だけ・裏で進められる物だけ）。
-                let signed_out =
-                    kind.configured_auth_state() == acp_client::AgentAuthState::SignedOut;
+                let signed_out = kind
+                    .configured_auth_state(
+                        agents_page::builtin_overrides(&get(cx)).get(kind.id),
+                    )
+                    == acp_client::AgentAuthState::SignedOut;
                 if signed_out && logs_in_in_background(kind, false) {
                     self.start_agent_login(kind, cx);
                 }

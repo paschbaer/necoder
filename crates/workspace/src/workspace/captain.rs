@@ -610,7 +610,8 @@ impl Workspace {
     pub(super) fn render_captain_appoint(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let theme = self.theme.clone();
         let accent = self.accent();
-        let agents = acp_client::authenticated_agent_labels();
+        let agents =
+            acp_client::authenticated_agent_labels(&settings::builtin_agent_overrides(cx));
         let mut choices = div().flex().flex_wrap().gap(px(8.));
         for (index, agent) in agents.iter().enumerate() {
             let label = agent.to_string();

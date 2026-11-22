@@ -1311,6 +1311,19 @@ pub const AGENT_LABELS: &[&str] = &[
     "Forge",
 ];
 
+/// ログインを確かめられた組み込みの表示名（`SignedOut` 以外）。composer はこの一覧を選択肢へ出す。
+/// `overrides` は設定で起動を差し替えた組み込みエージェント（id → 上書き・settings 層が写す）。
+/// **PATH に CLI が無くても、設定で起動コマンドを書いた物は「入れてある」**として跡を見に行く
+/// （Windows で `D:\Tools\Forge\forge.exe` を `agent_servers.forge.command` に書いた時の正・2026-11-22）。
+pub fn authenticated_agent_labels(overrides: &BTreeMap<String, AgentOverride>) -> Vec<&'static str> {
+    let states = cached_agent_auth_states(overrides);
+    AGENTS
+        .iter()
+        .zip(states)
+        .filter_map(|(agent, state)| (state != AgentAuthState::SignedOut).then_some(agent.label))
+        .collect()
+}
+
 /// 設定画面が表示する Agent の利用状態。資格情報そのものは読み出さず、CLI の status、
 /// 設定ファイルの存在、またはプロンプト無しの ACP session probe だけで判定する。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1324,17 +1337,6 @@ pub enum AgentAuthState {
 }
 
 static AGENT_AUTH_STATES: OnceLock<RwLock<Vec<AgentAuthState>>> = OnceLock::new();
-
-/// 利用可能、または資格情報の存在まで確認できた Agent。composer はこの一覧を選択肢へ出す。
-/// `Configured` は Settings の背景 refresh で session 成功後に `Available` へ昇格する。
-pub fn authenticated_agent_labels() -> Vec<&'static str> {
-    let states = cached_agent_auth_states();
-    AGENTS
-        .iter()
-        .zip(states)
-        .filter_map(|(agent, state)| (state != AgentAuthState::SignedOut).then_some(agent.label))
-        .collect()
-}
 
 /// [`AgentEvent::Failed`] のメッセージが **認証切れ**（再ログインで直る失敗）かを判定する。
 ///
@@ -1386,9 +1388,12 @@ pub fn is_session_ended(message: &str) -> bool {
 }
 
 /// 最後に確認した全 Agent の状態。初回はローカルの軽い CLI/config 判定だけを行う。
-pub fn cached_agent_auth_states() -> Vec<AgentAuthState> {
+/// `overrides` は設定で起動を差し替えた組み込みエージェント（[`authenticated_agent_labels`] と同じ）。
+pub fn cached_agent_auth_states(
+    overrides: &BTreeMap<String, AgentOverride>,
+) -> Vec<AgentAuthState> {
     AGENT_AUTH_STATES
-        .get_or_init(|| RwLock::new(detect_configured_agent_states()))
+        .get_or_init(|| RwLock::new(detect_configured_agent_states(overrides)))
         .read()
         .map(|states| states.clone())
         .unwrap_or_else(|_| vec![AgentAuthState::SignedOut; AGENTS.len()])
@@ -1400,13 +1405,16 @@ pub fn cached_agent_auth_states() -> Vec<AgentAuthState> {
 /// `disabled`（設定の `enabled_agents` に無い物・`AgentKind::id`）のエージェントは ACP の試しの
 /// セッションを起こさない（使わないものを確かめに行かない・O16）。CLI の status（`claude auth status`
 /// 等）だけは流す — エージェントは既定でオフなので、これを止めると、入れてログインも済んだ物まで
-/// 初回の案内で「準備すると使える」に落ちる。
+/// 初回の案内で「準備すると使える」に落ちる。`overrides` は設定で起動を差し替えた組み込み
+/// （[`authenticated_agent_labels`] と同じ）。PATH に無い物は初回判定のまま（跡が在れば `Configured`）
+/// で返す — probe は PATH 解決しか知らないので、override 側の解決は起動時（`resolve_command_on`）に委ねる。
 pub async fn refresh_agent_auth_states(
     cwd: impl Into<PathBuf>,
     disabled: &[String],
+    overrides: &BTreeMap<String, AgentOverride>,
 ) -> Vec<AgentAuthState> {
     let cwd = cwd.into();
-    let initial = detect_configured_agent_states();
+    let initial = detect_configured_agent_states(overrides);
     let probes = AGENTS
         .iter()
         .zip(initial.iter().copied())
@@ -1446,10 +1454,10 @@ pub async fn refresh_agent_auth_states(
     states
 }
 
-fn detect_configured_agent_states() -> Vec<AgentAuthState> {
+fn detect_configured_agent_states(overrides: &BTreeMap<String, AgentOverride>) -> Vec<AgentAuthState> {
     AGENTS
         .iter()
-        .map(AgentKind::configured_auth_state)
+        .map(|agent| agent.configured_auth_state(overrides.get(agent.id)))
         .collect()
 }
 
@@ -1653,8 +1661,17 @@ impl AgentKind {
     /// 対話も子プロセス起動もしない軽量判定。composer の初回 render から呼ばれるため、
     /// ファイル存在と環境変数だけを見る。status/probe は明示的な背景 refresh に分離する。
     /// 設定画面の導入/ログイン後ポーリング（変化検知）もこの軽さを前提に毎秒呼ぶ。
-    pub fn configured_auth_state(&self) -> AgentAuthState {
-        if !self.cli_installed() {
+    ///
+    /// `launch`（設定 `agent_servers.<id>` から settings 層が写した物）で起動コマンドを
+    /// 差し替えている物は、PATH に CLI が無くても「入れてある」扱いにする。Forge は npm 外の
+    /// PATH の単体バイナリで、Windows では `D:\Tools\Forge\forge.exe` を設定に書く使い方がある
+    /// — この門で `SignedOut` に落とすと、一覧（ピル・Chat・既定の自動選び）から消えてしまう
+    /// （2026-11-22・跡の `.forge/config.json` は在っても門で止まっていた）。env だけの上書きは
+    /// 起動の解決を変えないので数えない。
+    pub fn configured_auth_state(&self, launch: Option<&AgentOverride>) -> AgentAuthState {
+        let launched =
+            self.cli_installed() || launch.is_some_and(|launch| launch.command.is_some());
+        if !launched {
             return AgentAuthState::SignedOut;
         }
         self.auth_state_from_traces(
@@ -4895,6 +4912,38 @@ for line in sys.stdin:
         assert_eq!(traces.files, &[".forge/config.json"]);
     }
 
+    /// 設定で起動コマンドを差し替えた物は、PATH に CLI が無くても SignedOut に落とさない
+    /// （2026-11-22・Windows で `agent_servers.forge.command` を書く使い方）。CLI の在り方は
+    /// 環境しだいなので、門の振る舞いを環境ごとに確かめる。
+    #[test]
+    fn an_override_launch_survives_the_path_gate() {
+        let forge = AgentKind::by_label("Forge").expect("Forge");
+        let launch = AgentOverride {
+            command: Some("definitely-not-a-real-forge-xyz".to_string()),
+            args: vec![],
+            env: Default::default(),
+        };
+        let without = forge.configured_auth_state(None);
+        let with = forge.configured_auth_state(Some(&launch));
+        if forge.cli_installed() {
+            // CLI が在る環境では門は関係ない＝両方とも跡の判定で同じ結果。
+            assert_eq!(with, without);
+        } else {
+            // CLI が無い環境では門だけが SignedOut を返す（override の有無は跡の在否には触れない）。
+            assert_eq!(without, AgentAuthState::SignedOut);
+            // env だけの上書きは起動の解決を変えないので門を通らない。
+            let env_only = AgentOverride {
+                command: None,
+                args: vec![],
+                env: Default::default(),
+            };
+            assert_eq!(
+                forge.configured_auth_state(Some(&env_only)),
+                AgentAuthState::SignedOut
+            );
+        }
+    }
+
     #[test]
     fn settings_command_wins_over_registry_and_catalog() {
         let settings = AgentOverride {
@@ -8083,7 +8132,8 @@ for line in sys.stdin:
     #[ignore = "ローカルの vendor CLI / 資格情報を調べる"]
     fn live_auth_states() {
         let cwd = std::env::current_dir().expect("cwd");
-        let states = futures::executor::block_on(refresh_agent_auth_states(cwd, &[]));
+        let states =
+            futures::executor::block_on(refresh_agent_auth_states(cwd, &[], &Default::default()));
         for (agent, state) in AGENTS.iter().zip(states) {
             println!("{}: {state:?}", agent.label);
         }

@@ -6567,8 +6567,10 @@ PYEOF"#;
     ) -> Vec<SelectorChoice> {
         if selector == Selector::Agent {
             let mut choices = agent_choices(thread.agent.clone(), cx);
+            // Chat はプリセットと権限の裁定を necoder が決める面なので、検証済みのエージェントだけ
+            // 出す（一覧は `chat::CHAT_AGENT_LABELS`）。
             if thread.chat.is_some() {
-                choices.retain(|choice| matches!(choice.value.as_ref(), "Claude Code" | "Codex"));
+                choices.retain(|choice| chat::chat_allows_agent(choice.value.as_ref()));
             }
             return choices;
         }
@@ -6739,7 +6741,7 @@ PYEOF"#;
         }
         if selector == Selector::Agent
             && (self.agent_selector_locked()
-                || (self.chat_mode && !matches!(value.as_ref(), "Claude Code" | "Codex")))
+                || (self.chat_mode && !chat::chat_allows_agent(value.as_ref())))
         {
             self.open_menu = None;
             cx.notify();

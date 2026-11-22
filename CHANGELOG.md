@@ -10,6 +10,8 @@ Forge is now one of the built-in agents: necoder starts `forge acp` as an ACP se
 ### Added
 
 - **Forge as a built-in agent**: Forge now appears in the agent list (Settings › AI agents, the composer's agent pill, and the command palette's "AI: New thread (Forge)"). necoder launches the `forge` binary found on your PATH with the `acp` subcommand in the project root, and uses `forge setup` as its re-login command. Forge keeps its own model settings — `<project>/.forge/config.json`, falling back to `~/.forge/config.json` — and its own key, so necoder does not pass a connection into it. Install it from a Forge checkout with `cargo install --path rust/crates/forge-cli`.
+- **Forge in Chat**: the AI picker in Chat mode now offers Forge next to Claude Code and Codex. Chat's remembered permission modes are keyed by the agent's id (`chat.permission_modes.forge`), so Forge no longer shares Claude's entry, and a new chat restores Forge when it was the last agent you picked.
+- **Agents configured with their own launch command are no longer hidden**: the availability check used to look only at the PATH, so a builtin agent you pointed at a binary in `agent_servers.<id>.command` (e.g. `D:\Tools\Forge\forge.exe`) was treated as signed out and never appeared in the agent pickers. A configured launch command now counts as installed, and the login trace (`~/.forge/config.json` for Forge) decides the rest.
 
 ### Fixed
 
@@ -22,6 +24,8 @@ Forge が組み込みのエージェントに加わりました。necoder は `f
 ### 追加
 
 - **Forge を組み込みのエージェントに**: エージェントの一覧（設定 › AI エージェント・composer のエージェントのピル・パレットの「AI: 新しいスレッド（Forge）」）に Forge が並びます。necoder は PATH 上の `forge` をプロジェクトルートで `acp` サブコマンド付きで起こし、再ログインの案内は `forge setup` です。Forge は自分のモデルの設定（`<project>/.forge/config.json`・無ければ `~/.forge/config.json`）と自分の鍵を持つので、necoder は接続を渡しません。導入は Forge の checkout で `cargo install --path rust/crates/forge-cli` です。
+- **Chat の AI 選択に Forge**: Chat モードの入力欄の AI のピルに、Claude Code / Codex に並んで Forge を選べるようになりました。Chat の権限モードの記憶は agent id の鍵（`chat.permission_modes.forge`）で分かれるので Forge が Claude の記憶を借りず、新規 Chat は最後に選んだ AI（Forge 含む）で始まります。
+- **自分で起動コマンドを書いたエージェントが一覧から消えない**: 利用状態の判定が PATH だけを見ていたので、`agent_servers.<id>.command` にバイナリを書いた組み込みエージェント（例 `D:\Tools\Forge\forge.exe`）が「未ログイン」扱いになり、エージェントの選択肢に載りませんでした。起動コマンドの上書きがあれば「入れてある」扱いにして、あとはログインの跡（Forge なら `~/.forge/config.json`）で決めます。
 
 ### 修正
 

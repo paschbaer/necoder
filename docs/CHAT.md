@@ -134,6 +134,7 @@ Editor / Fleet に並ぶ第 3 のモード。claude.ai や ChatGPT のような�
 | チャットごとに MCP を選ぶ | later | 全体のスイッチとサービスごとの ON / OFF で足りるので作らない（2026-11-04・本人判断） |
 | Remote（PWA）から Chat | P2 | 改修 |
 | Codex | P1 | AI 選択・専用プリセット・モードの独立保存・再開を実装。実メールの検証は Gmail 接続待ち（末尾の対応状況） |
+| Forge | P1 | **実装済み**（2026-11-22。AI 選択に加わる。Claude と同じ汎用プリセットの道・モードの記憶は agent id の鍵。実機での送信 1 往復は未確認・末尾の Forge の節） |
 | 会話をまたぐ記憶・claude.ai の Projects 相当 | — | later。フォルダ = 共有ファイルの形で自然に作れる |
 | 数式・Mermaid の transcript 内描画 | — | later。当面は artifact（HTML）で見せる |
 | 音声入力・読み上げ | — | OS の音声入力で足りる |
@@ -266,7 +267,7 @@ NECODER_HOME=$ISO/home NECODER_GUI_SOCK=$ISO/gui.sock NECODER_DOCUMENTS_DIR=$ISO
 
 ### Codex の Chat 対応（2026-11-04）
 
-入力欄の AI 選択で Claude Code / Codex を選ぶ。会話を送った後は AI を固定し、保存した会話を開く時も元の AI を復元する。新規 Chat の AI は `chat.agent`、権限は `chat.permission_modes.<agent id>` へ保存し、エディタの設定を引き継がない。既存の `chat.permission_mode` は Claude の移行元として残す。Codex の初期値は `read-only`、表示する候補はアダプタの広告だけ。
+入力欄の AI 選択で Claude Code / Codex を選ぶ（2026-11-22 から Forge も・末尾の Forge の節）。会話を送った後は AI を固定し、保存した会話を開く時も元の AI を復元する。新規 Chat の AI は `chat.agent`、権限は `chat.permission_modes.<agent id>` へ保存し、エディタの設定を引き継がない。既存の `chat.permission_mode` は Claude の移行元として残す。Codex の初期値は `read-only`、表示する候補はアダプタの広告だけ。
 
 Codex では `CODEX_CONFIG.developer_instructions` に Chat の指示を渡す（new/load 共通）。`base_instructions` はこのアダプタ経路では置換できなかったので使用しない。`features.shell_tool=true`（2026-11-06 までは false）。Codex は自分の sandbox の範囲で裁くので、既定の `read-only` では**読むだけのコマンドは聞かずに走る**（`sw_vers` で確認）。書き込みや sandbox の外が要るコマンドは ACP の承認を通り、necoder の確認カードが出る。エディタの Codex と同じ扱い。成果物の変更はネイティブ `apply_patch` と ACP の承認・差分で行う。`necoder mcp --chat-read <dir>` は `read_file` / `list_files` / `search` だけを出し、名前を直接指定されても書き込み・Fleet のツールは拒否する。現時点の読み取りはテキストファイル。PDF の内容抽出は未対応（Claude の Read と同等ではない）。
 
@@ -275,3 +276,13 @@ Codex では `CODEX_CONFIG.developer_instructions` に Chat の指示を渡す�
 設定「コネクタ」は Claude と ChatGPT の接続を別々に表示する。Codex App Server の `mcpServerStatus/list` をモデルなしで読み、`_meta.connector_id` でアプリと道具をまとめる。Codex の権限は `connectors["codex_app:<id>"].tools` へ保存し、Chat の `apps.<id>.enabled` / `apps.<id>.tools.<name>.enabled` / `approval_mode` に写す。Claude の `disallowedTools` とは混ぜない。Codex のこの設定は Chat 用（エディタの Codex への適用は未対応）。
 
 検証: 関連 494 件のテストと runtime-shaders ビルドを通過。codex-acp 2.5.0 で相談・artifact 作成・範囲外書き込みの拒否・プロセスを立て直した再開後の編集を確認。本番 Chat の画面でも、添付テキストを necoder_chat.read_file で確認なしに読み、ファイルだけに置いた合言葉を正しく回答した。`cargo run -p chat_core --example probe_chat_preset -- --codex` で再現できる。Gmail は接続済み一覧に無く、実メール読み取り・下書き・Full access 中の送信ブロックは未検証。リリース前に接続して確かめる。
+
+### Forge の Chat 対応（2026-11-22）
+
+入力欄の AI 選択に Forge を加えた（許可リストは `chat::CHAT_AGENT_LABELS` に一本化・ピルの候補と `select_option` の壁の両方で使う）。前提として、Forge が一覧に載るには**ログインの跡の判定**を通る必要がある — PATH に `forge` が無くても、設定の `agent_servers.forge.command` で起動を書いていれば「入れてある」扱いにする（2026-11-22・acp_client `configured_auth_state`）。`~/.forge/config.json`（跡）と設定の起動の上書きの両方が要る。
+
+Forge は `providers/set` を持たず、necoder が `session/new` に載せるプリセットの項目（システムプロンプトの差し替え・道具の絞り込み）をどう扱うかは未確認 — **無視されても壊れない**のが前提で、Claude と同じ汎用の道（`chat_session_preferences` の Codex 以外）に流す。つまり Forge の Chat は Forge 既定の道具とプロンプトで、cwd だけチャットのフォルダに来る。コネクタのスイッチと claude.ai の `_meta` は Forge には効かない。
+
+権限モードは Forge が ACP で広告する物（`default` / `accept_edits` / `bypass_permissions`・2026-11-20 のプローブ）に合わせてピルで選ぶ。記憶の鍵は `chat.permission_modes.<agent id>`（`forge`）で、Claude / Codex とは混ざらない（書き込みは昔から agent id だったので、読み側を id 基準に揃えた・既存の claude/codex の鍵は変わらない）。新規 Chat の既定は「default」（`chat_core::preset::PERMISSION_MODE`）。
+
+検証: `cargo test -p agent_panel`（202・新規 `forge_chat_is_selectable_and_keeps_its_own_modes`）。実機での「送信 → ツール → 承認 → 完了」の 1 往復は人の手番。
